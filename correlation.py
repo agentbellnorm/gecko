@@ -38,30 +38,28 @@ def get_price_on_date(hist_info, dt_key, price='Open'):
 # @ symbol : stock symbol
 def regress(scores, pub_dates, symbol): 
     pp=pprint.PrettyPrinter(indent=4)
-    print(pub_dates)
     hist_data = stockretriever.get_historical_info(symbol)
     y = [] # prices two days after each article was published
     x = []
     for i in range(len(pub_dates)):
-        print(i)
         dt = two_days_later(pub_dates[i])
         p = get_price_on_date(hist_data, dt)
         if p is None or get_price_on_date(hist_data,pub_dates[i]) is None:
+            print("missing price information")
             continue
 
         if get_price_on_date(hist_data,pub_dates[i]) is None:
-          continue
-        print(pub_dates[i])
+            print("missing price information")
+            continue
+
         p = p - get_price_on_date(hist_data,pub_dates[i])
         y.append(p)
         x.append(scores[i])
 
     x = np.array(x) / norm(np.array(x))
     y = np.array(y) / norm(np.array(y))
-    print(x)
-    print(y)
-
-
+    if len(x) < 2:
+        return False
     slope, intercept, r_value, p_value, std_err = stats.linregress(x,y)
     print("slope:\t%f\tintercept:\t%f\nr:\t%f\tp:\t%f\tstd_err:\t%f" % (slope, intercept, r_value, p_value, std_err))
     return slope, intercept, r_value, p_value, std_err

@@ -1,6 +1,7 @@
 
 __author__ = 'Vishrut Reddi'
-
+import datetime
+from datetime import date
 from pymongo import MongoClient
 import json
 
@@ -21,6 +22,98 @@ import json
 '''
 
 class action:
+
+
+
+	# Description: This method finds the minimum date difference between the current date and all the dates of
+	#              published articles.
+	#
+	# @return minDate - minimum date difference between date of publication and current date (no. of days)
+	def findMinDateDiff(symbol):
+	  
+		# Get curent datetime object
+		curDateObj = datetime.datetime.now();
+
+		# Get current datetime 
+		curDate = date(curDateObj.year, curDateObj.month, curDateObj.day);
+
+		db = action.getConnection();
+
+		# Get list of article info
+		articles = list(db.Article.find({'symbol': symbol}))
+
+		# Temp Variables
+		minDate = 0;
+		firstRun = True;
+
+		for doc in articles:
+
+			dt = doc["date"]
+			dt = dt.split('-')
+			dt = date(int(dt[0]), int(dt[1]), int(dt[2]))
+
+			if(firstRun):
+				firstRun = False;
+				# Get distance between current date and date of article publication
+				minDate = (curDate - dt).days;
+
+
+			diff = (curDate - dt).days;
+
+			if(diff < minDate):
+				minDate = diff;
+
+		return minDate;
+
+
+	# Description: This method would find the average score of all the latest articles in the database.
+#
+# @return avgScore - Average score of scored latest articles
+	def findAvgScore(symbol):
+
+		distance = action.findMinDateDiff(symbol);
+
+		# Get curent datetime object
+		curDateObj = datetime.datetime.now();
+
+		# Get current datetime 
+		curDate = date(curDateObj.year, curDateObj.month, curDateObj.day);
+
+		db = action.getConnection();
+
+		# Get list of article info
+		articles = list(db.Article.find({'symbol': symbol}));
+
+		listOfScores = []
+
+		for doc in articles:
+
+			dt = doc["date"]
+			dt = dt.split('-')
+			dt = date(int(dt[0]), int(dt[1]), int(dt[2]))
+			if((curDate - dt).days == distance):
+				listOfScores.append(doc["sentiment"]);
+
+		numOfScores = len(listOfScores);
+
+		# No Scores Found
+		if(numOfScores == 0):
+			return 0;
+
+		else:
+			totalSum = 0;
+
+			for score in listOfScores:
+
+				totalSum = totalSum + score;
+
+
+			avgScore = float((totalSum)/(numOfScores));
+				
+
+		return avgScore;
+
+
 
 
 	# Description: This method is used to establish the connection to the Gecko Database
@@ -52,17 +145,17 @@ class action:
 	def purchaseStock(name, ticker, unitPrice):
 
 		# Get database connection instnace
-		db = getConnection();
+		db = action.getConnection();
 
 		# Get current user profit(s) from the DB
 		# The colelction would always have a single document/tuple.
 		curUserProfit = db.Profit.find_one()["User_Profit"];
 
 		# Add another tuple to the currently purchased stock(s) table
-		db.StocksOwned.insert({"Company_Name" : name, 'Company_Ticker' : ticker, "Unit_Stock_Price" : unitPrice, "Projected_Profit_Amt" : null});
+		db.StocksOwned.insert({"Company_Name" : name, 'Company_Ticker' : ticker, "Unit_Stock_Price" : unitPrice});
 
 		# Buy the stock i.e Deduct from profit(s)
-		newUserProfit = curUserProfit - unitPrice;
+		newUserProfit = float(curUserProfit) - float(unitPrice);
 
 		# Update User Profit(s) 
 		# Upsert parameter will insert instead of updating if the post is not found in the database.
@@ -86,32 +179,14 @@ class action:
 	def determineAction(slope, intercept, r_value, name, ticker, unitPrice):
 
 		# Check if the regression line is increasing or not
-
-		# FInd latest score average
-		latestScoreAvg = 10;
-
-		if(r_value > 0.5 and latestScoreAvg > 0):
+		latestScore = action.findAvgScore(ticker)
+		print("latest score: " + str(latestScore))
+		if(r_value > 0.5 and latestScore > 0):
 
 			# Now based on the current news article the stock prices are
 			# suppose to increase in the coming time. Therefore we purchase now.
-			purchaseStock(name, ticker, unitPrice);
+			action.purchaseStock(name, ticker, unitPrice);
 
-			# y = m.x + c
-			# Find current time
-			# y = unitPrice, m = slope, c = intercept, x = current time
-			curTime = (unitPrice - intercept)/ slope;
-
-			# y = m.x + c
-			# Find projected amount after 2 days/ 2 units of time
-			# y = unitPrice, m = slope, c = intercept, x = current time
-			projectedAmount = (slope * (curTime + 2)) + intercept;
-
-			# Get Estimate profit amount
-			projectedProfit = projectedAmount - unitPrice;
-
-			# Update DB with the Estimated Profit Amount
-			# Upsert parameter will insert instead of updating if the post is not found in the database.
-			db.StocksOwned.update({"Company_Name" : name, "Company_Ticker" : ticker}, {"Projected_Profit_Amt" : projectedProfit}, upsert=False)
 
 			# Indicate Buying Action
 			return True;
@@ -136,7 +211,7 @@ class action:
 	def startNewSystem():
 
 		# Get database connection instnace
-		db = getConnection();
+		db = action.getConnection();
 
 		# No news scores, No User Profit i.e Profit = $0, No user owned stock info
 		db.drop_collection('StocksOwned')

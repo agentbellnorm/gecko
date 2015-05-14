@@ -26,8 +26,8 @@ es = Elasticsearch(hosts = [ES_HOST])
 negbulk = []
 posbulk = []
 sp500symbols = open('sp500.csv').read().strip('\n ').split('\n')
-symbol = "YHOO"
-companyName = "Yahoo"
+symbol = "INTC"
+companyName = "Intel"
 db = action.action.getConnection();
 
 class Word():
@@ -98,7 +98,31 @@ class NewsItem():
 
 
 
-class Crawler():
+class Gecko():
+
+	def action(self, symbol):
+		reg = self.regression(symbol)
+		if not reg:
+			print("Not enough data")
+			return 0
+		currentPrice = stockretriever.get_current_info([symbol])
+		ask = currentPrice['Ask']
+		if action.action.determineAction(reg[0], reg[1], reg[2], companyName, symbol, ask):
+			print("Bougth "+companyName)
+		else:
+			print("Did nothing")
+
+	def regression(self, symbol):
+		res = list(db.Article.find({'symbol': symbol}))
+		dates = []
+		scores = []
+		for o in res:
+			dt = o['date']
+			dt = dt.split('-')
+			dt = date(int(dt[0]), int(dt[1]), int(dt[2])) 
+			dates.append(dt)
+			scores.append(o['sentiment'])
+		return correlation.regress(scores, dates, symbol)
 
 	def getNews(self, symbol):
 		url = "http://articlefeeds.nasdaq.com/nasdaq/symbols?symbol="
@@ -106,21 +130,34 @@ class Crawler():
 		data = urlopen(req).read()
 		text = data.decode(encoding="ascii", errors="ignore")
 		out = self.urlsfrompage(text)
-		db.Article.insert(out)
+		if len(out) > 0:
+			db.Article.insert(out)
+			print("added"+str(len(out))+"articles")
+		else:
+			print("Nothing that is relevant and new!")
 
 	def urlsfrompage(self, tickerpage):
 		objDict = []
 		soup = BeautifulSoup(tickerpage)
+		r = list(db.Article.find())
+		titles = []
+		numOfItems = len(soup.find_all('item'))
+		selected = 0
+		for d in r:
+			titles.append(d['title'])
 		for item in soup.find_all('item'):
 			titleRatio = self.symbolRatio(symbol, item.title.get_text())
 			body = self.getbodyfromURL(item.find('feedburner:origlink').get_text())
 			bodyRatio = self.symbolRatio(symbol, body)
-			k = 0.2 #the weight of the title ratio vs the bodyratio
+			k = 0.3 #the weight of the title ratio vs the bodyratio
 			weightedRatio = k * titleRatio + (1 - k) * bodyRatio
-			
 			if weightedRatio > 0.5:
+				selected += 1
 				tup = parsedate_tz(item.pubdate.get_text())
 				x = date(tup[0], tup[1], tup[2])
+				if item.title.get_text() in titles:
+					print("already there!")
+					continue
 				doc = NewsItem(body)
 				score = doc.SO()
 				objDict.append({'body': body,
@@ -129,6 +166,9 @@ class Crawler():
 							   'title': item.title.get_text(),
 							   'sentiment': score,
 							   'seen': 'no'})
+				titles.append(item.title.get_text())
+		print("selected: " + str(selected))
+		print("rejected: "+ str(numOfItems-selected))
 		return objDict
 		
 	def getbodyfromURL(self, url):
@@ -151,9 +191,10 @@ class Crawler():
 			return s.replace('\n', ' ')
 
 		#returns the decimal fraction of how many times a symbol is mentioned over other symbols.
-	def symbolRatio(self, symb, text):
+
+	def symbolRatio(self, symb, t):
 		othermentions = 1
-		words = text.split(' ')
+		words = t.split(' ')
 		words = self.stripList(words)
 		symbolmentions = words.count(symb)
 		for s in sp500symbols: 
@@ -167,21 +208,11 @@ class Crawler():
 			r.append(w.strip('",:!?-'))
 		return r
 
-#print('Wed, 29 Apr 2015 17:17:31 Z'.replace('Z','+0000'))
-#x = parsedate_tz('Wed, 29 Apr 2015 17:17:31 Z')
-# c = Crawler()
-# c.getNews(symbol)
-res = list(db.Article.find({'seen':"no"}))
-dates = []
-scores = []
-for o in res:
-	dt = o['date']
-	dt = dt.split('-')
-	dt = date(int(dt[0]), int(dt[1]), int(dt[2])) 
-	dates.append(dt)
-	scores.append(o['sentiment'])
-print(scores)
+g = Gecko()
+g.getNews(symbol)
+g.action(symbol)
 
-print(correlation.regress(scores, dates, symbol))
+
+
 
 
